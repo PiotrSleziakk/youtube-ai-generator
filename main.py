@@ -1,11 +1,12 @@
 from trends import get_google_trends
-from generate_script import generate_fact, extract_keywords
-from text_to_speech import generate_audio
-from fetch_images import download_image
-from create_video import create_slideshow  # Używamy zmodyfikowanej funkcji
+from generate_script import generate_fact_and_keywords
+from text_to_speech_gtts import generate_audio  # Aktualnie używamy gTTS
+from fetch_videos import download_video
+from create_video import create_montage, ensure_even_dimensions
 from seo_optimize import generate_seo_data
 from create_thumbnail import create_thumbnail
 from save_metadata import save_metadata
+from translate_keywords import translate_keywords
 from dotenv import load_dotenv
 import os
 from datetime import datetime
@@ -16,42 +17,41 @@ try:
 except AttributeError:
     pass
 
-load_dotenv()  # Wczytaj zmienne środowiskowe z .env
+load_dotenv()  # Wczytaj zmienne środowiskowe z pliku .env
 
-# Utwórz unikalny folder wyjściowy oparty na dacie i godzinie
-timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
-output_dir = os.path.join("output", timestamp)
-os.makedirs(output_dir, exist_ok=True)
+def run_generation(topic=None, use_trends=False):
+    """
+    Generuje ciekawostkę, słowo kluczowe oraz plik audio.
+    Zwraca: (output_dir, fact, keyword_pl, english_keyword, audio_path, source)
+    """
+    if use_trends:
+        from trends import get_google_trends
+        topics = get_google_trends()
+        topic = topics[0]
+    if not topic:
+        raise Exception("Nie podano tematu ani nie wybrano trendów.")
 
-# # 1. Pobierz trendy z Google
-# topics = get_google_trends()
-# topic = topics[0]  # Wybieramy pierwszy trend
-# 1. Ustaw stały temat
-topic = "koty"
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M")
+    output_dir = os.path.join("output", timestamp)
+    os.makedirs(output_dir, exist_ok=True)
 
-# 2. Wygeneruj ciekawostkę na dany temat (już dostosowana)
-fact = generate_fact(topic)
+    fact, keyword_pl, source = generate_fact_and_keywords(topic)
+    with open(os.path.join(output_dir, "fact.txt"), "w", encoding="utf-8") as f:
+        f.write(fact)
+    with open(os.path.join(output_dir, "keywords_pl.txt"), "w", encoding="utf-8") as f:
+        f.write(keyword_pl)
+    with open(os.path.join(output_dir, "source.txt"), "w", encoding="utf-8") as f:
+        f.write(source)
 
-# 3. Wyodrębnij kluczowe frazy z ciekawostki
-keywords = extract_keywords(fact)
+    english_keyword = translate_keywords([keyword_pl], src='pl', dest='en')[0]
+    with open(os.path.join(output_dir, "keywords_en.txt"), "w", encoding="utf-8") as f:
+        f.write(english_keyword)
 
-# 4. Wygeneruj audio z wykorzystaniem SSML (dla lepszej wymowy)
-audio_path = generate_audio(fact, os.path.join(output_dir, "voiceover.mp3"), use_ssml=True)
+    audio_path = generate_audio(fact, os.path.join(output_dir, "voiceover.wav"))
 
-# 5. Pobierz obrazy dla każdej kluczowej frazy
-image_paths = []
-for i, kw in enumerate(keywords):
-    img_path = download_image(kw, os.path.join(output_dir, f"background_{i}.jpg"))
-    image_paths.append(img_path)
+    return output_dir, fact, keyword_pl, english_keyword, audio_path, source
 
-# 6. Stwórz filmik w formie sekwencji slajdów, gdzie łączny czas nie przekracza 60 sekund
-video_path = create_slideshow(image_paths, audio_path, os.path.join(output_dir, "final_video.mp4"), max_duration=60)
-
-# 7. Wygeneruj SEO: tytuł, opis oraz tagi
-title, description, hashtags = generate_seo_data(topic, fact)
-thumbnail_path = create_thumbnail(title, image_paths[0], os.path.join(output_dir, "thumbnail.jpg"))
-
-# 8. Zapisz metadane do pliku tekstowego
-save_metadata(title, f"{description}\nHashtagi: {hashtags}", os.path.join(output_dir, "metadata.txt"))
-
-print(f"Gotowe! Sprawdź folder {output_dir} i wrzuć film ręcznie na YouTube.")
+if __name__ == '__main__':
+    # Dla testów – stały temat
+    output_folder = run_generation(topic="koty", use_trends=False)
+    print(f"Gotowe! Sprawdź folder {output_folder} i wrzuć film ręcznie na YouTube.")
