@@ -1,43 +1,24 @@
+"""
+fetch_videos.py
+---------------
+Moduł pobierający klipy wideo z API Pexels na podstawie podanego search_term.
+Funkcja download_video pobiera pojedynczy klip, a download_videos – wiele unikalnych klipów.
+"""
+
 import requests
 import shutil
 import os
 from deep_translator import GoogleTranslator
 from deep_translator.exceptions import TranslationNotFound
 
-
-def download_video(query, topic, filename="video.mp4"):
-    # Upewnij się, że topic nie jest None
-    if topic is None:
-        topic = ""
-    try:
-        english_topic = GoogleTranslator(source='pl', target='en').translate(topic)
-    except TranslationNotFound:
-        english_topic = ""
-    except Exception as e:
-        english_topic = ""
-
-    # Jeśli tłumaczenie się nie udało lub zwróciło pusty ciąg, użyj oryginalnego tematu
-    if not english_topic:
-        english_topic = topic
-    # Upewnij się, że english_topic jest typu string
-    english_topic = str(english_topic)
-
-    # Upewnij się, że query nie jest None i jest ciągiem znaków
-    if query is None:
-        query = ""
-    query = str(query)
-
-    # Łączymy temat z zapytaniem, jeśli english_topic nie występuje już w query
-    if english_topic.lower() not in query.lower():
-        search_query = f"{english_topic} {query} no copyright"
-    else:
-        search_query = f"{query} no copyright"
-
+def download_video(search_term, filename="video.mp4"):
+    """
+    Pobiera pojedynczy klip wideo na podstawie podanego search_term.
+    """
     headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
-    url = f"https://api.pexels.com/videos/search?query={search_query}&per_page=1"
+    url = f"https://api.pexels.com/videos/search?query={search_term} no copyright&per_page=1"
     response = requests.get(url, headers=headers)
     data = response.json()
-
     if data.get("videos"):
         video_url = data["videos"][0]["video_files"][0]["link"]
         video_data = requests.get(video_url, stream=True)
@@ -47,9 +28,37 @@ def download_video(query, topic, filename="video.mp4"):
     else:
         return None
 
+def download_videos(search_term, count, output_dir):
+    """
+    Pobiera do 'count' unikalnych klipów wideo na podstawie podanego search_term.
+    Klipy są zapisywane w folderze output_dir.
+    Zwraca listę ścieżek do pobranych klipów – tylko tych, które zostały poprawnie zapisane.
+    """
+    headers = {"Authorization": os.getenv("PEXELS_API_KEY")}
+    url = f"https://api.pexels.com/videos/search?query={search_term} no copyright&per_page={count*2}"
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    video_files = []
+    downloaded_ids = set()
+    if data.get("videos"):
+        for video in data["videos"]:
+            video_id = video.get("id")
+            if video_id in downloaded_ids:
+                continue
+            downloaded_ids.add(video_id)
+            video_url = video["video_files"][0]["link"]
+            filename = os.path.join(output_dir, f"video_{len(video_files)}.mp4")
+            video_data = requests.get(video_url, stream=True)
+            with open(filename, 'wb') as f:
+                shutil.copyfileobj(video_data.raw, f)
+            # Sprawdź, czy plik został zapisany i nie jest pusty
+            if os.path.exists(filename) and os.path.getsize(filename) > 0:
+                video_files.append(filename)
+            if len(video_files) >= count:
+                break
+    return video_files
 
-# Przykładowe użycie (testowe)
 if __name__ == '__main__':
-    # Przykład: pobierz video dla słowa kluczowego "cat" z tematem "koty"
-    result = download_video("cat", "koty", "test_video.mp4")
-    print("Pobrany plik:", result)
+    # Test: pobierz 3 unikalne klipy dla "cat" do bieżącego folderu
+    result = download_videos("cat", 3, ".")
+    print("Pobrane pliki:", result)
